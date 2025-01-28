@@ -1,0 +1,13 @@
+#include <msp430.h>  // Include MSP430 header file
+
+void main(void) {
+    WDTCTL = WDTPW | WDTHOLD; // Stop watchdog timer
+
+    P1DIR |= BIT0;  // Set P1.0 (LED) as output
+    P1OUT &= ~BIT0; // Ensure LED is off initially
+
+    while (1) {     // Infinite loop
+        P1OUT ^= BIT0; // Toggle P1.0 (LED on/off)
+        __delay_cycles(100000); // Delay for ~100ms
+    }
+}
