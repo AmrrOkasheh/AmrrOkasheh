@@ -1,7 +1,10 @@
 #include <msp430.h>  // Include MSP430 header file
 
 void main(void) {
-    WDTCTL = WDTPW | WDTHOLD; // Stop watchdog timer
+    WDTCTL = WDTPW | WDTHOLD;                 // Stop watchdog timer
+                                              // Watch dog timer control register, which is a safety feature that resets the microcontroller if the program gets stuck.
+                                              // Watch dog timer password is a predefined constant that allows writing to the WDTCTL 
+                                              // Watch dog timer hold stops the timer.
 
     P1DIR |= BIT0;  // Set P1.0 (LED) as output
     P1OUT &= ~BIT0; // Ensure LED is off initially
@@ -11,3 +14,4 @@ void main(void) {
         __delay_cycles(100000); // Delay for ~100ms
     }
 }
+
