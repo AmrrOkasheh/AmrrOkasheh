@@ -6,12 +6,12 @@ void main(void) {
                                               // Watch dog timer password is a predefined constant that allows writing to the WDTCTL 
                                               // Watch dog timer hold stops the timer.
 
-    P1DIR |= BIT0;  // Set P1.0 (LED) as output
-    P1OUT &= ~BIT0; // Ensure LED is off initially
+    P1DIR |= BIT0;                            // Set P1.0 (LED) as output
+    P1OUT &= ~BIT0;                           // Ensure LED is off initially
 
-    while (1) {     // Infinite loop
-        P1OUT ^= BIT0; // Toggle P1.0 (LED on/off)
-        __delay_cycles(100000); // Delay for ~100ms
+    while (1) {                               // Infinite loop
+        P1OUT ^= BIT0;                        // Toggle P1.0 (LED on/off)
+        __delay_cycles(100000);               // Delay for ~100ms
     }
 }
 
