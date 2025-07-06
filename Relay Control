@@ -1,0 +1,41 @@
+// === Pin Definitions ===
+#define RELAY_CTRL_PIN 5  // ESP32 pin connected to BJT base through a resistor
+
+void setup() {
+  // Initialize serial communication
+  Serial.begin(115200);
+  delay(100); // Allow time for Serial Monitor or Bluetooth to connect
+
+  // Configure relay control pin
+  pinMode(RELAY_CTRL_PIN, OUTPUT);
+  digitalWrite(RELAY_CTRL_PIN, LOW); // Start with relay OFF
+
+  // Greeting message
+  Serial.println("Relay Control Ready");
+  Serial.println("Send '1' to turn ON the relay, '0' to turn OFF");
+}
+
+void loop() {
+  // Check for incoming serial data
+  if (Serial.available()) {
+    char input = Serial.read();
+
+    // Command: Turn ON
+    if (input == '1') {
+      digitalWrite(RELAY_CTRL_PIN, HIGH);
+      Serial.println("Relay ON");
+    }
+
+    // Command: Turn OFF
+    else if (input == '0') {
+      digitalWrite(RELAY_CTRL_PIN, LOW);
+      Serial.println("Relay OFF");
+    }
+
+    // Invalid input
+    else {
+      Serial.print("Unknown input: ");
+      Serial.println(input);
+    }
+  }
+}
