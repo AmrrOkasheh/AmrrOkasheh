@@ -1,0 +1,98 @@
+#include <Wire.h>
+#include <WiFi.h>
+
+// Replace with your network credentials
+const char* ssid     = "SpectrumSetup-0CB1";
+const char* password = "cornerlist651";
+
+// TMP100 I2C address (default is 0x48 when A0/A1/A2 are GND)
+#define TMP100_ADDR 0x48
+
+WiFiServer server(80);
+
+// Read temperature from TMP100
+float readTempC() {
+  Wire.beginTransmission(TMP100_ADDR);
+  Wire.write(0x00); // Temperature register
+  Wire.endTransmission();
+  Wire.requestFrom(TMP100_ADDR, 2);
+
+  if (Wire.available() == 2) {
+    uint8_t msb = Wire.read();
+    uint8_t lsb = Wire.read();
+    int16_t raw = ((msb << 8) | lsb) >> 4;
+
+    // Handle negative temps
+    if (raw & 0x800) raw |= 0xF000;
+    return raw * 0.0625;
+  }
+  return -999.0;
+}
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin();  // SDA=21, SCL=22 by default
+
+  // Connect to WiFi
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\n✅ WiFi connected!");
+  Serial.print("📶 IP Address: ");
+  Serial.println(WiFi.localIP());
+
+  server.begin();
+  Serial.println("✅ HTTP server started");
+}
+
+void loop() {
+  WiFiClient client = server.available();
+  if (!client) return;
+
+  Serial.println("🌐 Client connected");
+
+  while (!client.available()) {
+    delay(1);
+  }
+
+  // Read request (optional, can discard)
+  while (client.available()) {
+    char c = client.read();
+    if (c == '\n') break;
+  }
+
+  float tempC = readTempC();
+  float tempF = tempC * 9.0 / 5.0 + 32.0;
+
+  // Send HTTP response
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: text/html");
+  client.println("Connection: close");
+  client.println();
+  client.println("<!DOCTYPE html>");
+  client.println("<html><head><meta charset='UTF-8'>");
+
+  // 🔁 Auto-refresh every 1 second
+  client.println("<meta http-equiv='refresh' content='1'>");
+
+  client.println("<style>");
+  client.println("body { display: flex; justify-content: center; align-items: center; height: 100vh; font-family: monospace; }");
+  client.println(".container { text-align: center; }");
+  client.println("</style>");
+
+  client.println("</head><body>");
+  client.println("<div class='container'>");
+  client.println("<h2>🌡 ESP32 TMP100 Temperature</h2>");
+  client.printf("<p>Temperature: <strong>%.2f °C</strong><br>", tempC);
+  client.printf("Temperature: <strong>%.2f °F</strong></p>", tempF);
+  client.println("</div></body></html>");
+
+  client.stop();
+  Serial.println("❌ Client disconnected\n");
+}
