@@ -1,0 +1,181 @@
+#include <Arduino.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+// === Traffic light GPIOs ===
+// Road A
+#define A_RED     2
+#define A_YELLOW  4
+#define A_GREEN   5
+
+// Road B
+#define B_RED     16
+#define B_YELLOW  17
+#define B_GREEN   18
+
+// Road C
+#define C_RED     19
+#define C_YELLOW  21
+#define C_GREEN   22
+
+// Road D
+#define D_RED     23
+#define D_YELLOW  33
+#define D_GREEN   27
+
+// === Sensor GPIOs (Analog Inputs) ===
+#define SENSOR_A 36  // ADC1_CH0
+#define SENSOR_B 39  // ADC1_CH3
+#define SENSOR_C 34  // ADC1_CH6
+#define SENSOR_D 35  // ADC1_CH7
+
+// === Traffic Threshold ===
+#define TRAFFIC_THRESHOLD 1000
+
+// === Enums ===
+enum Mode { NORMAL, INTELLIGENT };
+Mode currentMode = NORMAL;
+
+// === Structures ===
+struct Road {
+  const char* name;
+  int redPin, yellowPin, greenPin;
+  int sensorPin;
+  bool hasTraffic;
+};
+
+// === Road Configurations ===
+Road roads[4] = {
+  { "A", A_RED, A_YELLOW, A_GREEN, SENSOR_A, false },
+  { "B", B_RED, B_YELLOW, B_GREEN, SENSOR_B, false },
+  { "C", C_RED, C_YELLOW, C_GREEN, SENSOR_C, false },
+  { "D", D_RED, D_YELLOW, D_GREEN, SENSOR_D, false }
+};
+
+// Task handles
+TaskHandle_t roadTasks[4];
+
+// === Functions ===
+void turnAllOff(Road road) {
+  digitalWrite(road.redPin, LOW);
+  digitalWrite(road.yellowPin, LOW);
+  digitalWrite(road.greenPin, LOW);
+}
+
+bool hasTraffic(int pin) {
+  int val = analogRead(pin);
+  Serial.printf("Sensor %d reading: %d\n", pin, val);
+  return val < TRAFFIC_THRESHOLD;
+}
+
+// === Road Task ===
+void roadTask(void* param) {
+  int roadIndex = *(int*)param;
+  Road road = roads[roadIndex];
+
+  Serial.printf("✅ Road Task Started: %s | RED=%d YELLOW=%d GREEN=%d\n",
+                road.name, road.redPin, road.yellowPin, road.greenPin);
+
+  while (true) {
+    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
+    Serial.printf("🚦 Road %s: GREEN\n", road.name);
+    digitalWrite(road.redPin, LOW);
+    digitalWrite(road.greenPin, HIGH);
+    vTaskDelay(pdMS_TO_TICKS(4500));
+
+    digitalWrite(road.greenPin, LOW);
+    digitalWrite(road.yellowPin, HIGH);
+    Serial.printf("⚠️ Road %s: YELLOW\n", road.name);
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    digitalWrite(road.yellowPin, LOW);
+    digitalWrite(road.redPin, HIGH);
+    Serial.printf("🔴 Road %s: RED\n", road.name);
+  }
+}
+
+// === Controller Task ===
+void controllerTask(void* param) {
+  for (int i = 0; i < 4; i++) {
+    digitalWrite(roads[i].redPin, HIGH);
+    digitalWrite(roads[i].yellowPin, LOW);
+    digitalWrite(roads[i].greenPin, LOW);
+  }
+
+  int current = 0;
+
+  while (true) {
+    int next = current;
+
+    if (currentMode == NORMAL) {
+      // Normal: Just cycle through all roads
+      next = (current + 1) % 4;
+    } else {
+      // Intelligent: Find next road with traffic
+      for (int i = 1; i <= 4; i++) {
+        int candidate = (current + i) % 4;
+        if (roads[candidate].hasTraffic) {
+          next = candidate;
+          break;
+        }
+      }
+    }
+
+    Serial.printf("\n🧭 Controller activating: Road %s\n", roads[next].name);
+    xTaskNotifyGive(roadTasks[next]);
+    vTaskDelay(pdMS_TO_TICKS(5000));
+    current = next;
+  }
+}
+
+// === Sensor Monitor Task ===
+void sensorMonitorTask(void* param) {
+  while (true) {
+    bool allHaveTraffic = true;
+    bool anyHasTraffic = false;
+
+    for (int i = 0; i < 4; i++) {
+      roads[i].hasTraffic = hasTraffic(roads[i].sensorPin);
+      if (roads[i].hasTraffic) anyHasTraffic = true;
+      else allHaveTraffic = false;
+    }
+
+    // Mode decision
+    if (allHaveTraffic || !anyHasTraffic) {
+      currentMode = NORMAL;
+      Serial.println("🔁 Switching to NORMAL MODE");
+    } else {
+      currentMode = INTELLIGENT;
+      Serial.println("🧠 Switching to INTELLIGENT MODE");
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(2000));
+  }
+}
+
+// === Setup ===
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  for (int i = 0; i < 4; i++) {
+    pinMode(roads[i].redPin, OUTPUT);
+    pinMode(roads[i].yellowPin, OUTPUT);
+    pinMode(roads[i].greenPin, OUTPUT);
+    turnAllOff(roads[i]);
+  }
+
+  static int indices[4];
+  for (int i = 0; i < 4; i++) {
+    indices[i] = i;
+    xTaskCreatePinnedToCore(roadTask, roads[i].name, 2048, &indices[i], 1, &roadTasks[i], 1);
+  }
+
+  xTaskCreatePinnedToCore(controllerTask, "Controller", 2048, NULL, 2, NULL, 1);
+  xTaskCreatePinnedToCore(sensorMonitorTask, "SensorMonitor", 2048, NULL, 1, NULL, 1);
+}
+
+void loop() {
+  // Nothing here
+}
