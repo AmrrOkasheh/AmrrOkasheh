@@ -1,0 +1,119 @@
+#include <EEPROM.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#define LED_GREEN 17
+#define LED_BLUE  18
+#define BUTTON_PIN 0
+#define EEPROM_ADDR 0
+
+enum State { OFF, STEADY, FLASHING };
+State currentState = OFF;
+bool reverseMapping = false;
+
+// Flash timing
+bool flashOn = false;
+unsigned long lastFlashTime = 0;
+
+// Mutex for shared state
+portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+
+void buttonTask(void *pvParameters) {
+  bool lastButtonState = HIGH;
+
+  while (1) {
+    bool reading = digitalRead(BUTTON_PIN);
+    if (reading == LOW && lastButtonState == HIGH) {
+      // Button just pressed
+      vTaskDelay(pdMS_TO_TICKS(50)); // debounce
+
+      if (digitalRead(BUTTON_PIN) == LOW) {
+        // Update state safely
+        portENTER_CRITICAL(&mux);
+        if (currentState == OFF) currentState = STEADY;
+        else if (currentState == STEADY) currentState = FLASHING;
+        else currentState = OFF;
+        portEXIT_CRITICAL(&mux);
+
+        // Reset flash timer
+        flashOn = false;
+        lastFlashTime = millis();
+
+        // Wait until button released
+        while (digitalRead(BUTTON_PIN) == LOW) {
+          vTaskDelay(pdMS_TO_TICKS(10));
+        }
+      }
+    }
+    lastButtonState = reading;
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+}
+
+void ledTask(void *pvParameters) {
+  while (1) {
+    State localState;
+
+    portENTER_CRITICAL(&mux);
+    localState = currentState;
+    portEXIT_CRITICAL(&mux);
+
+    if (localState == OFF) {
+      digitalWrite(LED_GREEN, HIGH);
+      digitalWrite(LED_BLUE, HIGH);
+    }
+    else if (localState == STEADY) {
+      if (!reverseMapping) {
+        digitalWrite(LED_GREEN, LOW);
+        digitalWrite(LED_BLUE, HIGH);
+      } else {
+        digitalWrite(LED_GREEN, HIGH);
+        digitalWrite(LED_BLUE, LOW);
+      }
+    }
+    else if (localState == FLASHING) {
+      unsigned long now = millis();
+
+      if (flashOn && (now - lastFlashTime >= 87)) {
+        if (!reverseMapping) digitalWrite(LED_BLUE, HIGH);
+        else                 digitalWrite(LED_GREEN, HIGH);
+        flashOn = false;
+        lastFlashTime = now;
+      }
+      else if (!flashOn && (now - lastFlashTime >= 913)) {
+        if (!reverseMapping) {
+          digitalWrite(LED_GREEN, HIGH);
+          digitalWrite(LED_BLUE, LOW);
+        } else {
+          digitalWrite(LED_BLUE, HIGH);
+          digitalWrite(LED_GREEN, LOW);
+        }
+        flashOn = true;
+        lastFlashTime = now;
+      }
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(10));  // yield time to other tasks
+  }
+}
+
+void setup() {
+  EEPROM.begin(512);
+  reverseMapping = EEPROM.read(EEPROM_ADDR);
+  EEPROM.write(EEPROM_ADDR, !reverseMapping);
+  EEPROM.commit();
+
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_BLUE, OUTPUT);
+  digitalWrite(LED_GREEN, HIGH);
+  digitalWrite(LED_BLUE, HIGH);
+
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+
+  xTaskCreatePinnedToCore(buttonTask, "Button Task", 2048, NULL, 1, NULL, 1);
+  xTaskCreatePinnedToCore(ledTask, "LED Task", 2048, NULL, 1, NULL, 1);
+}
+
+void loop() {
+  // unused
+}
