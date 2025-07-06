@@ -1,0 +1,94 @@
+#include <EEPROM.h>
+
+#define LED_GREEN 17
+#define LED_BLUE  18
+#define BUTTON_PIN 0
+#define EEPROM_ADDR 0
+
+enum State { OFF, STEADY, FLASHING };
+State currentState = OFF;
+bool reverseMapping = false;
+
+unsigned long lastFlashTime = 0;
+bool flashOn = false;
+
+unsigned long lastDebounceTime = 0;
+bool buttonState = HIGH;  // start unpressed
+bool lastButtonState = HIGH;
+
+void setup() {
+  EEPROM.begin(512);
+  reverseMapping = EEPROM.read(EEPROM_ADDR);
+  EEPROM.write(EEPROM_ADDR, !reverseMapping);
+  EEPROM.commit();
+
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_BLUE, OUTPUT);
+  digitalWrite(LED_GREEN, HIGH);
+  digitalWrite(LED_BLUE, HIGH);
+
+  pinMode(BUTTON_PIN, INPUT_PULLUP); // active low button
+}
+
+void loop() {
+  // --- POLL BUTTON ---
+  bool reading = digitalRead(BUTTON_PIN);
+
+  if (reading != lastButtonState) {
+    lastDebounceTime = millis();  // reset timer
+  }
+
+  if ((millis() - lastDebounceTime) > 50) {  // 50ms debounce
+    if (reading == LOW && buttonState == HIGH) {
+      // Button was just pressed
+      if (currentState == OFF) currentState = STEADY;
+      else if (currentState == STEADY) currentState = FLASHING;
+      else currentState = OFF;
+
+      // Reset flash state and turn off all LEDs
+      flashOn = false;
+      digitalWrite(LED_GREEN, HIGH);
+      digitalWrite(LED_BLUE, HIGH);
+      lastFlashTime = millis();
+    }
+    buttonState = reading;
+  }
+
+  lastButtonState = reading;
+
+  // --- STATE CONTROL ---
+  if (currentState == OFF) {
+    digitalWrite(LED_GREEN, HIGH);
+    digitalWrite(LED_BLUE, HIGH);
+  }
+
+  else if (currentState == STEADY) {
+    if (!reverseMapping) {
+      digitalWrite(LED_GREEN, LOW);
+      digitalWrite(LED_BLUE, HIGH);
+    } else {
+      digitalWrite(LED_GREEN, HIGH);
+      digitalWrite(LED_BLUE, LOW);
+    }
+  }
+
+  else if (currentState == FLASHING) {
+    unsigned long now = millis();
+    if (flashOn && now - lastFlashTime >= 87) {
+      if (!reverseMapping) digitalWrite(LED_BLUE, HIGH);
+      else                 digitalWrite(LED_GREEN, HIGH);
+      flashOn = false;
+      lastFlashTime = now;
+    } else if (!flashOn && now - lastFlashTime >= 913) {
+      if (!reverseMapping) {
+        digitalWrite(LED_GREEN, HIGH);  // make sure steady LED is off
+        digitalWrite(LED_BLUE, LOW);
+      } else {
+        digitalWrite(LED_BLUE, HIGH);   // make sure steady LED is off
+        digitalWrite(LED_GREEN, LOW);
+      }
+      flashOn = true;
+      lastFlashTime = now;
+    }
+  }
+}
